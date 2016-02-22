@@ -16,27 +16,32 @@
 
 package com.example.android.sunshine.watchface;
 
-import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
+import android.graphics.Point;
 import android.graphics.Rect;
-import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.support.v4.content.ContextCompat;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
-import android.text.format.Time;
+import android.view.Display;
+import android.view.LayoutInflater;
 import android.view.SurfaceHolder;
+import android.view.View;
 import android.view.WindowInsets;
+import android.view.WindowManager;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import java.lang.ref.WeakReference;
-import java.util.TimeZone;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -44,8 +49,6 @@ import java.util.concurrent.TimeUnit;
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
 public class SunshineWatchFace extends CanvasWatchFaceService {
-    private static final Typeface NORMAL_TYPEFACE =
-            Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
 
     /**
      * Update rate in milliseconds for interactive mode. We update once a second since seconds are
@@ -84,29 +87,30 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
     }
 
     private class Engine extends CanvasWatchFaceService.Engine {
-        final Handler mUpdateTimeHandler = new EngineHandler(this);
-        boolean mRegisteredTimeZoneReceiver = false;
-        Paint mBackgroundPaint;
-        Paint mTextPaint;
-        boolean mAmbient;
-        Time mTime;
-        final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                mTime.clear(intent.getStringExtra("time-zone"));
-                mTime.setToNow();
-            }
-        };
-        int mTapCount;
-
-        float mXOffset;
-        float mYOffset;
-
+        private final Handler mUpdateTimeHandler = new EngineHandler(this);
+        private boolean mInAmbientMode;
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
          * disable anti-aliasing in ambient mode.
          */
-        boolean mLowBitAmbient;
+        private boolean mLowBitAmbient;
+
+        private Date mDate;
+        private SimpleDateFormat mFullTimeFormat;
+        private SimpleDateFormat mShortTimeFormat;
+        private SimpleDateFormat mDateFormat;
+
+        private int mSpecW, mSpecH;
+        private final Point mDisplaySize = new Point();
+
+        private View mLayout;
+        private int mBackgroundColor;
+        private LinearLayout mBackground;
+        private TextView mTimeTextView;
+        private TextView mDateTextView;
+        private ImageView mWeatherIcon;
+        private TextView mHighTempTextView;
+        private TextView mLowTempTextView;
 
         @Override
         public void onCreate(SurfaceHolder holder) {
@@ -118,16 +122,30 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                     .setShowSystemUiTime(false)
                     .setAcceptsTapEvents(true)
                     .build());
-            Resources resources = SunshineWatchFace.this.getResources();
-            mYOffset = resources.getDimension(R.dimen.digital_y_offset);
 
-            mBackgroundPaint = new Paint();
-            mBackgroundPaint.setColor(resources.getColor(R.color.background));
+            mFullTimeFormat = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+            mShortTimeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+            mDateFormat = new SimpleDateFormat("EEE MMM dd yyyy", Locale.getDefault());
 
-            mTextPaint = new Paint();
-            mTextPaint = createTextPaint(resources.getColor(R.color.digital_text));
+            // Inflate layout from XML rather than directly draw on canvas, using method described
+            // at https://sterlingudell.wordpress.com/2015/05/10/layout-based-watch-faces-for-android-wear/
+            LayoutInflater layoutInflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+            mLayout = layoutInflater.inflate(R.layout.watchface_rect, null);
 
-            mTime = new Time();
+            Display display = ((WindowManager) getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
+            display.getSize(mDisplaySize);
+
+            mSpecW = View.MeasureSpec.makeMeasureSpec(mDisplaySize.x, View.MeasureSpec.EXACTLY);
+            mSpecH = View.MeasureSpec.makeMeasureSpec(mDisplaySize.y, View.MeasureSpec.EXACTLY);
+
+            mBackground = (LinearLayout) mLayout.findViewById(R.id.watchface_background);
+            mTimeTextView = (TextView) mLayout.findViewById(R.id.time_text);
+            mDateTextView = (TextView) mLayout.findViewById(R.id.date_text);
+            mWeatherIcon = (ImageView) mLayout.findViewById(R.id.weather_icon);
+            mHighTempTextView = (TextView) mLayout.findViewById(R.id.high_temp_text);
+            mLowTempTextView = (TextView) mLayout.findViewById(R.id.low_temp_text);
+
+            mBackgroundColor = ContextCompat.getColor(SunshineWatchFace.this, R.color.md_light_blue_500);
         }
 
         @Override
@@ -136,63 +154,26 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             super.onDestroy();
         }
 
-        private Paint createTextPaint(int textColor) {
-            Paint paint = new Paint();
-            paint.setColor(textColor);
-            paint.setTypeface(NORMAL_TYPEFACE);
-            paint.setAntiAlias(true);
-            return paint;
-        }
-
         @Override
         public void onVisibilityChanged(boolean visible) {
             super.onVisibilityChanged(visible);
-
-            if (visible) {
-                registerReceiver();
-
-                // Update time zone in case it changed while we weren't visible.
-                mTime.clear(TimeZone.getDefault().getID());
-                mTime.setToNow();
-            } else {
-                unregisterReceiver();
-            }
 
             // Whether the timer should be running depends on whether we're visible (as well as
             // whether we're in ambient mode), so we may need to start or stop the timer.
             updateTimer();
         }
 
-        private void registerReceiver() {
-            if (mRegisteredTimeZoneReceiver) {
-                return;
-            }
-            mRegisteredTimeZoneReceiver = true;
-            IntentFilter filter = new IntentFilter(Intent.ACTION_TIMEZONE_CHANGED);
-            SunshineWatchFace.this.registerReceiver(mTimeZoneReceiver, filter);
-        }
-
-        private void unregisterReceiver() {
-            if (!mRegisteredTimeZoneReceiver) {
-                return;
-            }
-            mRegisteredTimeZoneReceiver = false;
-            SunshineWatchFace.this.unregisterReceiver(mTimeZoneReceiver);
-        }
-
         @Override
         public void onApplyWindowInsets(WindowInsets insets) {
             super.onApplyWindowInsets(insets);
 
-            // Load resources that have alternate values for round watches.
-            Resources resources = SunshineWatchFace.this.getResources();
-            boolean isRound = insets.isRound();
-            mXOffset = resources.getDimension(isRound
-                    ? R.dimen.digital_x_offset_round : R.dimen.digital_x_offset);
-            float textSize = resources.getDimension(isRound
-                    ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
+            // TODO Adjust text size for round and rectangular faces
 
-            mTextPaint.setTextSize(textSize);
+            // Load resources that have alternate values for round watches.
+            // Resources resources = SunshineWatchFace.this.getResources();
+            // boolean isRound = insets.isRound();
+            // float textSize = resources.getDimension(isRound
+            //        ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
         }
 
         @Override
@@ -210,10 +191,13 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         @Override
         public void onAmbientModeChanged(boolean inAmbientMode) {
             super.onAmbientModeChanged(inAmbientMode);
-            if (mAmbient != inAmbientMode) {
-                mAmbient = inAmbientMode;
+            if (mInAmbientMode != inAmbientMode) {
+                mInAmbientMode = inAmbientMode;
                 if (mLowBitAmbient) {
-                    mTextPaint.setAntiAlias(!inAmbientMode);
+                    mTimeTextView.getPaint().setAntiAlias(!mInAmbientMode);
+                    mDateTextView.getPaint().setAntiAlias(!mInAmbientMode);
+                    mHighTempTextView.getPaint().setAntiAlias(!mInAmbientMode);
+                    mLowTempTextView.getPaint().setAntiAlias(!mInAmbientMode);
                 }
                 invalidate();
             }
@@ -224,12 +208,10 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         }
 
         /**
-         * Captures tap event (and tap type) and toggles the background color if the user finishes
-         * a tap.
+         * Captures tap event (and tap type).
          */
         @Override
         public void onTapCommand(int tapType, int x, int y, long eventTime) {
-            Resources resources = SunshineWatchFace.this.getResources();
             switch (tapType) {
                 case TAP_TYPE_TOUCH:
                     // The user has started touching the screen.
@@ -239,29 +221,42 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                     break;
                 case TAP_TYPE_TAP:
                     // The user has completed the tap gesture.
-                    mTapCount++;
-                    mBackgroundPaint.setColor(resources.getColor(mTapCount % 2 == 0 ?
-                            R.color.background : R.color.background2));
-                    break;
             }
             invalidate();
         }
 
         @Override
         public void onDraw(Canvas canvas, Rect bounds) {
-            // Draw the background.
-            if (isInAmbientMode()) {
-                canvas.drawColor(Color.BLACK);
-            } else {
-                canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
-            }
+            mDate = Calendar.getInstance().getTime();
 
             // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
-            mTime.setToNow();
-            String text = mAmbient
-                    ? String.format("%d:%02d", mTime.hour, mTime.minute)
-                    : String.format("%d:%02d:%02d", mTime.hour, mTime.minute, mTime.second);
-            canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+            String time = mInAmbientMode
+                    ? mShortTimeFormat.format(mDate.getTime())
+                    : mFullTimeFormat.format(mDate.getTime());
+            String date = mDateFormat.format(mDate.getTime());
+
+            // TODO update temperatures using a service
+            String high = "25\u00B0";
+            String low = "16\u00B0";
+
+            mTimeTextView.setText(time);
+            mDateTextView.setText(date);
+            mHighTempTextView.setText(high);
+            mLowTempTextView.setText(low);
+
+            // TODO update weather icon using a service
+            // mWeatherIcon.setImageBitmap(weatherIcon);
+
+            if (isInAmbientMode()) {
+                mBackground.setBackgroundColor(Color.BLACK);
+            } else {
+                mBackground.setBackgroundColor(mBackgroundColor);
+            }
+
+            mLayout.measure(mSpecW, mSpecH);
+            mLayout.layout(0, 0, mLayout.getMeasuredWidth(), mLayout.getMeasuredHeight());
+
+            mLayout.draw(canvas);
         }
 
         /**
