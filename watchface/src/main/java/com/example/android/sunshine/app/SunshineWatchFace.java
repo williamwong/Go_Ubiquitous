@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.example.android.sunshine.watchface;
+package com.example.android.sunshine.app;
 
 import android.content.Context;
 import android.graphics.Canvas;
@@ -24,9 +24,12 @@ import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.v4.content.ContextCompat;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
+import android.util.Log;
 import android.view.Display;
 import android.view.LayoutInflater;
 import android.view.SurfaceHolder;
@@ -36,6 +39,16 @@ import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.DataEvent;
+import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.DataItem;
+import com.google.android.gms.wearable.DataMap;
+import com.google.android.gms.wearable.DataMapItem;
+import com.google.android.gms.wearable.Wearable;
 
 import java.lang.ref.WeakReference;
 import java.text.SimpleDateFormat;
@@ -49,6 +62,10 @@ import java.util.concurrent.TimeUnit;
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
 public class SunshineWatchFace extends CanvasWatchFaceService {
+
+    public static final String PATH_WEATHER = "/weather";
+    public static final String KEY_TEMP_HIGH = "com.example.android.sunshine.app.KEY_TEMP_HIGH";
+    public static final String KEY_TEMP_LOW = "com.example.android.sunshine.app.KEY_TEMP_LOW";
 
     /**
      * Update rate in milliseconds for interactive mode. We update once a second since seconds are
@@ -112,6 +129,10 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         private TextView mHighTempTextView;
         private TextView mLowTempTextView;
 
+        private SunshineWeatherUpdater mWeatherUpdater;
+        private double mHighTemp;
+        private double mLowTemp;
+
         @Override
         public void onCreate(SurfaceHolder holder) {
             super.onCreate(holder);
@@ -146,17 +167,27 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             mLowTempTextView = (TextView) mLayout.findViewById(R.id.low_temp_text);
 
             mBackgroundColor = ContextCompat.getColor(SunshineWatchFace.this, R.color.md_light_blue_500);
+
+            mWeatherUpdater = new SunshineWeatherUpdater(this);
+            mWeatherUpdater.register();
         }
 
         @Override
         public void onDestroy() {
             mUpdateTimeHandler.removeMessages(MSG_UPDATE_TIME);
+            mWeatherUpdater.unregister();
             super.onDestroy();
         }
 
         @Override
         public void onVisibilityChanged(boolean visible) {
             super.onVisibilityChanged(visible);
+
+            if (visible) {
+                mWeatherUpdater.register();
+            } else {
+                mWeatherUpdater.unregister();
+            }
 
             // Whether the timer should be running depends on whether we're visible (as well as
             // whether we're in ambient mode), so we may need to start or stop the timer.
@@ -235,16 +266,15 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                     : mFullTimeFormat.format(mDate.getTime());
             String date = mDateFormat.format(mDate.getTime());
 
-            // TODO update temperatures using a service
-            String high = "25\u00B0";
-            String low = "16\u00B0";
+            String high = String.format(Locale.getDefault(), "%1.0f\u00B0", mHighTemp);
+            String low = String.format(Locale.getDefault(), "%1.0f\u00B0", mLowTemp);
 
             mTimeTextView.setText(time);
             mDateTextView.setText(date);
             mHighTempTextView.setText(high);
             mLowTempTextView.setText(low);
 
-            // TODO update weather icon using a service
+            // TODO set weather icon from updates
             // mWeatherIcon.setImageBitmap(weatherIcon);
 
             if (isInAmbientMode()) {
@@ -257,6 +287,18 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             mLayout.layout(0, 0, mLayout.getMeasuredWidth(), mLayout.getMeasuredHeight());
 
             mLayout.draw(canvas);
+        }
+
+        public void updateWeather(DataMap dataMap) {
+            Log.d("SunshineWatchFace", "updateWeather: Updated temperatures");
+            if (dataMap != null){
+                if(dataMap.containsKey(KEY_TEMP_HIGH)
+                        && dataMap.containsKey(KEY_TEMP_LOW)){
+                    mHighTemp = (int) dataMap.getDouble(KEY_TEMP_HIGH);
+                    mLowTemp = (int) dataMap.getDouble(KEY_TEMP_LOW);
+                }
+                // TODO update weather icon from data map
+            }
         }
 
         /**
@@ -288,6 +330,72 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 long delayMs = INTERACTIVE_UPDATE_RATE_MS
                         - (timeMs % INTERACTIVE_UPDATE_RATE_MS);
                 mUpdateTimeHandler.sendEmptyMessageDelayed(MSG_UPDATE_TIME, delayMs);
+            }
+        }
+
+        /**
+         * Encapsulation of com.example.android.sunshine.app.sync listeners on the DataApi
+         * used to trigger a weather update
+         */
+        class SunshineWeatherUpdater implements GoogleApiClient.ConnectionCallbacks,
+                GoogleApiClient.OnConnectionFailedListener, DataApi.DataListener {
+
+            private final String TAG = SunshineWeatherUpdater.class.getSimpleName();
+            private final GoogleApiClient mGoogleApiClient;
+            private final Engine mSunshineWatchFaceEngine;
+
+            public SunshineWeatherUpdater(SunshineWatchFace.Engine sunshineWatchFaceEngine) {
+                mSunshineWatchFaceEngine = sunshineWatchFaceEngine;
+                mGoogleApiClient = new GoogleApiClient.Builder(SunshineWatchFace.this)
+                        .addConnectionCallbacks(this)
+                        .addOnConnectionFailedListener(this)
+                        .addApi(Wearable.API)
+                        .build();
+            }
+
+            @Override
+            public void onConnected(@Nullable Bundle bundle) {
+                Log.d(TAG, "onConnected: Watchface GoogleAPI client connected");
+                Wearable.DataApi.addListener(mGoogleApiClient, this);
+            }
+
+            @Override
+            public void onConnectionSuspended(int i) {
+                Log.d(TAG, "onConnectionSuspended: Watchface GoogleAPI client suspended");
+            }
+
+            @Override
+            public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+                Log.e(TAG, "onConnectionFailed: Watchface GoogleAPI client could not connect");
+            }
+
+            @Override
+            public void onDataChanged(DataEventBuffer dataEventBuffer) {
+                Log.d(TAG, "onDataChanged: New data detected");
+                for (DataEvent event : dataEventBuffer) {
+                    if (event.getType() == DataEvent.TYPE_CHANGED) {
+                        // DataItem changed
+                        DataItem item = event.getDataItem();
+                        if (item.getUri().getPath().compareTo(PATH_WEATHER) == 0) {
+                            // Retrieve data map and send it back to engine to update weather info
+                            DataMap dataMap = DataMapItem.fromDataItem(item).getDataMap();
+                            mSunshineWatchFaceEngine.updateWeather(dataMap);
+                        }
+                    } else if (event.getType() == DataEvent.TYPE_DELETED) {
+                        // DataItem deleted
+                    }
+                }
+            }
+
+            public void register() {
+                Log.d(TAG, "register: Connecting client");
+                mGoogleApiClient.connect();
+            }
+
+            public void unregister() {
+                Log.d(TAG, "unregister: Disconnecting client");
+                Wearable.DataApi.removeListener(mGoogleApiClient, this);
+                mGoogleApiClient.disconnect();
             }
         }
     }
