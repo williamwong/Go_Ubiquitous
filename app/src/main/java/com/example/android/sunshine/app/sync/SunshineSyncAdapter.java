@@ -39,6 +39,7 @@ import com.example.android.sunshine.app.muzei.WeatherMuzeiSource;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.DataMap;
 import com.google.android.gms.wearable.PutDataMapRequest;
@@ -49,6 +50,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -67,6 +69,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     private static final String PATH_WEATHER = "/weather";
     private static final String KEY_TEMP_HIGH = "com.example.android.sunshine.app.KEY_TEMP_HIGH";
     private static final String KEY_TEMP_LOW = "com.example.android.sunshine.app.KEY_TEMP_LOW";
+    private static final String KEY_WEATHER_ICON = "com.example.android.sunshine.app.KEY_WEATHER_ICON";
 
     // Interval at which to sync with the weather, in seconds.
     // 60 seconds (1 minute) * 180 = 3 hours
@@ -434,12 +437,18 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
             Log.d(LOG_TAG, "updateWatchface: low temp is " + low);
             Log.d(LOG_TAG, "updateWatchface: weatherId is " + weatherId);
 
+            int iconResource = Utility.getArtResourceForWeatherCondition(weatherId);
+            Bitmap iconBitmap = BitmapFactory.decodeResource(getContext().getResources(), iconResource);
+            final ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+            iconBitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream);
+            Asset iconAsset = Asset.createFromBytes(byteStream.toByteArray());
+
             PutDataMapRequest putDataMapRequest = PutDataMapRequest.create(PATH_WEATHER);
             DataMap dataMap = putDataMapRequest.getDataMap();
             dataMap.putLong("timestamp", System.currentTimeMillis());
             dataMap.putDouble(KEY_TEMP_HIGH, high);
             dataMap.putDouble(KEY_TEMP_LOW, low);
-//                    dataMap.putInt(KEY_WEATHER_ID, weatherId);
+            dataMap.putAsset(KEY_WEATHER_ICON, iconAsset);
             putDataMapRequest.setUrgent();
             new SunshineWatchFaceUpdater(getContext(), putDataMapRequest);
 
