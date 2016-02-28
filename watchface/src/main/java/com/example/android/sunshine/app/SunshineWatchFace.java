@@ -16,6 +16,7 @@
 
 package com.example.android.sunshine.app;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -23,6 +24,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
@@ -32,12 +34,14 @@ import android.support.annotation.Nullable;
 import android.support.v4.content.ContextCompat;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
+import android.text.SpannableStringBuilder;
+import android.text.style.StyleSpan;
 import android.util.Log;
 import android.view.Display;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.SurfaceHolder;
 import android.view.View;
-import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -112,16 +116,16 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
     private class Engine extends CanvasWatchFaceService.Engine {
         private final Handler mUpdateTimeHandler = new EngineHandler(this);
         private final Point mDisplaySize = new Point();
-        private boolean mInAmbientMode;
+        private final SimpleDateFormat mFullTimeFormat = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+        private final SimpleDateFormat mShortTimeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+        private final SimpleDateFormat mDateFormat = new SimpleDateFormat("EEE MMM dd yyyy", Locale.getDefault());
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
          * disable anti-aliasing in ambient mode.
          */
         private boolean mLowBitAmbient;
+        private boolean mInAmbientMode;
         private Date mDate;
-        private SimpleDateFormat mFullTimeFormat;
-        private SimpleDateFormat mShortTimeFormat;
-        private SimpleDateFormat mDateFormat;
         private int mSpecW, mSpecH;
         private View mLayout;
         private int mBackgroundColor;
@@ -133,10 +137,11 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         private TextView mLowTempTextView;
 
         private SunshineWeatherUpdater mWeatherUpdater;
-        private double mHighTemp;
-        private double mLowTemp;
+        private String mHighTemp;
+        private String mLowTemp;
         private Bitmap mIconBitmap;
 
+        @SuppressLint("InflateParams")
         @Override
         public void onCreate(SurfaceHolder holder) {
             super.onCreate(holder);
@@ -144,16 +149,15 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             setWatchFaceStyle(new WatchFaceStyle.Builder(SunshineWatchFace.this)
                     .setCardPeekMode(WatchFaceStyle.PEEK_MODE_VARIABLE)
                     .setBackgroundVisibility(WatchFaceStyle.BACKGROUND_VISIBILITY_INTERRUPTIVE)
+                    .setHotwordIndicatorGravity(Gravity.TOP | Gravity.START)
+                    .setStatusBarGravity(Gravity.TOP | Gravity.END)
                     .setShowSystemUiTime(false)
                     .setAcceptsTapEvents(true)
                     .build());
 
-            mFullTimeFormat = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-            mShortTimeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
-            mDateFormat = new SimpleDateFormat("EEE MMM dd yyyy", Locale.getDefault());
-
             // Inflate layout from XML rather than directly draw on canvas, using method described
             // at https://sterlingudell.wordpress.com/2015/05/10/layout-based-watch-faces-for-android-wear/
+            // Layout is inflated with no parent root, so this must be manually resolved in onDraw()
             LayoutInflater layoutInflater = (LayoutInflater) getSystemService(Context.LAYOUT_INFLATER_SERVICE);
             mLayout = layoutInflater.inflate(R.layout.watchface_rect, null);
 
@@ -196,19 +200,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             // Whether the timer should be running depends on whether we're visible (as well as
             // whether we're in ambient mode), so we may need to start or stop the timer.
             updateTimer();
-        }
-
-        @Override
-        public void onApplyWindowInsets(WindowInsets insets) {
-            super.onApplyWindowInsets(insets);
-
-            // TODO Adjust text size for round and rectangular faces
-
-            // Load resources that have alternate values for round watches.
-            // Resources resources = SunshineWatchFace.this.getResources();
-            // boolean isRound = insets.isRound();
-            // float textSize = resources.getDimension(isRound
-            //        ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
         }
 
         @Override
@@ -264,25 +255,18 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         public void onDraw(Canvas canvas, Rect bounds) {
             mDate = Calendar.getInstance().getTime();
 
-            // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
-            String time = mInAmbientMode
-                    ? mShortTimeFormat.format(mDate.getTime())
-                    : mFullTimeFormat.format(mDate.getTime());
-            String date = mDateFormat.format(mDate.getTime());
-
-            String high = String.format(Locale.getDefault(), "%1.0f\u00B0", mHighTemp);
-            String low = String.format(Locale.getDefault(), "%1.0f\u00B0", mLowTemp);
-
-            mTimeTextView.setText(time);
-            mDateTextView.setText(date);
-            mHighTempTextView.setText(high);
-            mLowTempTextView.setText(low);
+            mTimeTextView.setText(getFormattedTime());
+            mDateTextView.setText(mDateFormat.format(mDate.getTime()));
+            mHighTempTextView.setText(mHighTemp);
+            mLowTempTextView.setText(mLowTemp);
             mWeatherIcon.setImageBitmap(mIconBitmap);
 
             if (isInAmbientMode()) {
                 mBackground.setBackgroundColor(Color.BLACK);
+                mWeatherIcon.setVisibility(View.GONE);
             } else {
                 mBackground.setBackgroundColor(mBackgroundColor);
+                mWeatherIcon.setVisibility(View.VISIBLE);
             }
 
             mLayout.measure(mSpecW, mSpecH);
@@ -296,8 +280,8 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             if (dataMap != null) {
                 if (dataMap.containsKey(KEY_TEMP_HIGH)
                         && dataMap.containsKey(KEY_TEMP_LOW)) {
-                    mHighTemp = (int) dataMap.getDouble(KEY_TEMP_HIGH);
-                    mLowTemp = (int) dataMap.getDouble(KEY_TEMP_LOW);
+                    mHighTemp = dataMap.getString(KEY_TEMP_HIGH);
+                    mLowTemp = dataMap.getString(KEY_TEMP_LOW);
                     mWeatherUpdater.loadBitmapFromAsset(dataMap.getAsset(KEY_WEATHER_ICON));
                 }
             }
@@ -337,6 +321,17 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
 
         private void setWeatherIcon(Bitmap icon) {
             mIconBitmap = icon;
+        }
+
+        @NonNull
+        private SpannableStringBuilder getFormattedTime() {
+            // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
+            String rawTime = mInAmbientMode
+                    ? mShortTimeFormat.format(mDate.getTime())
+                    : mFullTimeFormat.format(mDate.getTime());
+            final SpannableStringBuilder time = new SpannableStringBuilder(rawTime);
+            time.setSpan(new StyleSpan(Typeface.BOLD), 0, rawTime.indexOf(":"), 0);
+            return time;
         }
 
         /**

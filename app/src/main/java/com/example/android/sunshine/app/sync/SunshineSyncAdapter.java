@@ -102,8 +102,11 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public static final int LOCATION_STATUS_UNKNOWN = 3;
     public static final int LOCATION_STATUS_INVALID = 4;
 
+    private final Context mContext;
+
     public SunshineSyncAdapter(Context context, boolean autoInitialize) {
         super(context, autoInitialize);
+        mContext = context;
     }
 
     @Override
@@ -430,8 +433,8 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
 
         if (data != null && data.moveToFirst()) {
             Log.d(LOG_TAG, "updateWatchface: data found");
-            double high = data.getDouble(INDEX_MAX_TEMP);
-            double low = data.getDouble(INDEX_MIN_TEMP);
+            String high = Utility.formatTemperature(mContext, data.getDouble(INDEX_MAX_TEMP));
+            String low = Utility.formatTemperature(mContext, data.getDouble(INDEX_MIN_TEMP));
             int weatherId = data.getInt(INDEX_WEATHER_ID);
             Log.d(LOG_TAG, "updateWatchface: high temp is " + high);
             Log.d(LOG_TAG, "updateWatchface: low temp is " + low);
@@ -446,8 +449,8 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
             PutDataMapRequest putDataMapRequest = PutDataMapRequest.create(PATH_WEATHER);
             DataMap dataMap = putDataMapRequest.getDataMap();
             dataMap.putLong("timestamp", System.currentTimeMillis());
-            dataMap.putDouble(KEY_TEMP_HIGH, high);
-            dataMap.putDouble(KEY_TEMP_LOW, low);
+            dataMap.putString(KEY_TEMP_HIGH, high);
+            dataMap.putString(KEY_TEMP_LOW, low);
             dataMap.putAsset(KEY_WEATHER_ICON, iconAsset);
             putDataMapRequest.setUrgent();
             new SunshineWatchFaceUpdater(getContext(), putDataMapRequest);
