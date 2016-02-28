@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Watchface</string>
+    <string name="watchface_name">Sunshine</string>
+    <string name="weather_icon">Weather Icon</string>
+</resources>

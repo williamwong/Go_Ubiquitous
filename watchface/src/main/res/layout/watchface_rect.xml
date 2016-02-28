@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/watchface_background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical"
+    >
+
+    <TextView
+        android:id="@+id/time_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textAppearance="@android:style/TextAppearance.Material.Headline"
+        android:fontFamily="sans-serif-light"
+        android:textSize="32sp"
+        tools:text="15:30"
+        />
+
+    <TextView
+        android:id="@+id/date_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="4dp"
+        android:textAppearance="@android:style/TextAppearance.Small"
+        android:fontFamily="sans-serif-light"
+        android:alpha=".5"
+        android:textAllCaps="true"
+        tools:text="Fri, Jul 14 2015"
+        />
+
+    <View
+        android:layout_width="50dp"
+        android:layout_height="1dp"
+        android:layout_margin="8dp"
+        android:background="@android:color/white"
+        android:alpha=".2"
+        />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        >
+
+        <ImageView
+            android:id="@+id/weather_icon"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginLeft="4dp"
+            android:layout_marginStart="4dp"
+            android:layout_marginRight="4dp"
+            android:layout_marginEnd="4dp"
+            android:contentDescription="@string/weather_icon"
+            />
+
+        <TextView
+            android:id="@+id/high_temp_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:textAppearance="@android:style/TextAppearance.Large"
+            android:fontFamily="sans-serif"
+            tools:text="25\u00B0"
+            />
+
+        <TextView
+            android:id="@+id/low_temp_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:textAppearance="@android:style/TextAppearance.Large"
+            android:fontFamily="sans-serif-light"
+            android:alpha=".5"
+            tools:text="16\u00B0"
+            />
+    </LinearLayout>
+
+</LinearLayout>
