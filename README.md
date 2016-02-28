@@ -1,3 +1,20 @@
+Go Ubiquitous
+===================================
+
+An Android Wear watchface developed for Project 6 of the [Udacity Android Developer Nanodegree](https://www.udacity.com/course/android-developer-nanodegree--nd801).
+
+This project is forked from the final [Sunshine Sample App](https://github.com/udacity/Advanced_Android_Development) app (more details below) from the [Advanced Android Development Udacity course](https://www.udacity.com/course/advanced-android-app-development--ud855-nd).
+
+The app adds a watchface that works for both round and square Wear devices. In addition to displaying the current date and time, it also synchronizes the current day's high and low temperatures and displays an icon that summarizes the current weather condition.
+
+Round Watchface
+---------------
+![Round watchface](watchface/src/main/res/drawable-nodpi/preview_digital_circular.png)
+
+Square Watchface
+---------------
+![Square watchface](watchface/src/main/res/drawable-nodpi/preview_digital.png)
+
 Advanced Android Sample App
 ===================================
 
